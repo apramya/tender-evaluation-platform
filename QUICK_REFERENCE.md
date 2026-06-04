@@ -1,0 +1,278 @@
+# Quick Reference
+
+## URLs
+
+| Service | Local URL |
+|---------|-----------|
+| Frontend | `http://localhost:3000` |
+| Backend | `http://localhost:8000` |
+| Swagger | `http://localhost:8000/docs` |
+| PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
+
+## Start/Stop
+
+```bash
+docker compose up -d --build postgres redis backend worker frontend
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f worker
+docker compose logs -f frontend
+docker compose down
+```
+
+Reset local containers and volumes:
+
+```bash
+docker compose down -v
+```
+
+Warning: this deletes local database data.
+
+## Migrations
+
+```bash
+docker compose exec backend python -m alembic upgrade head
+```
+
+Create a migration after model changes:
+
+```bash
+docker compose exec backend python -m alembic revision --autogenerate -m "describe change"
+```
+
+## Seed Demo Data
+
+Local/demo only:
+
+```bash
+docker compose exec backend python -m scripts.seed_data
+```
+
+Do not use seeded users/data for production handover.
+
+## Current Roles
+
+| Role | Use |
+|------|-----|
+| `admin` | Full control, users, deletes, audits, reviews |
+| `procurement_officer` | Procurement workflow, evaluations, reviews |
+| `user` | Upload tenders, upload bidders, evaluate, export |
+
+No other roles should be referenced in code, docs, database seed data, or UI.
+
+## Main Workflow
+
+1. Login or sign up with OTP.
+2. Upload tender.
+3. Upload one or more bidder submissions for that tender.
+4. Run evaluation.
+5. Confirm extracted criteria and bidder evidence.
+6. Review low-confidence cases in review queue.
+7. Export PDF/JSON/comparison.
+8. Email report if SMTP is configured.
+
+## Evaluation Method Codes
+
+| Method | Meaning |
+|--------|---------|
+| `llm+rules` | Groq plus deterministic extraction both contributed |
+| `llm` | Groq result used |
+| `rules` | LLM failed/rate-limited/unavailable, rule fallback used |
+| `unavailable` | Evaluation could not produce usable output |
+
+Backend logs should show Groq activity when the LLM is called:
+
+```text
+Calling Groq model ...
+```
+
+## Important Env Vars
+
+```env
+FRONTEND_URL=http://localhost:3000
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+JWT_SECRET_KEY=...
+
+GROQ_API_KEY=...
+GROQ_MODEL=llama-3.3-70b-versatile
+
+STORAGE_BACKEND=s3
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=ap-south-1
+S3_BUCKET_NAME=...
+S3_PREFIX=tendereval-local
+
+SMTP_HOST=...
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_FROM_EMAIL=...
+
+ALLOW_PUBLIC_SIGNUP=true
+REACT_APP_ALLOW_PUBLIC_SIGNUP=true
+```
+
+## OAuth Redirects
+
+Local Google:
+
+```text
+http://localhost:8000/api/auth/oauth/google/callback
+```
+
+Local LinkedIn:
+
+```text
+http://localhost:8000/api/auth/oauth/linkedin/callback
+```
+
+Production:
+
+```text
+https://your-backend-domain.com/api/auth/oauth/google/callback
+https://your-backend-domain.com/api/auth/oauth/linkedin/callback
+```
+
+Redirect URI mismatch means the provider dashboard and `.env` value are not exactly identical.
+
+## S3 Notes
+
+- Use a private bucket.
+- `STORAGE_BACKEND=s3` for client/prod.
+- Versioning is optional.
+- Bucket names cannot be renamed.
+- Database stores metadata and S3 keys; S3 stores uploaded file objects.
+
+## ChromaDB Notes
+
+`chroma_db/` is generated vector-search state. It may contain small `.bin` files and `chroma.sqlite3`. Do not edit or commit it.
+
+## Useful API Calls
+
+Login:
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"email\":\"user@example.com\",\"password\":\"password\"}"
+```
+
+Upload tender:
+
+```bash
+curl -X POST http://localhost:8000/api/tenders/upload ^
+  -H "Authorization: Bearer %TOKEN%" ^
+  -F "file=@tender.pdf"
+```
+
+Create evaluation:
+
+```bash
+curl -X POST http://localhost:8000/api/evaluations ^
+  -H "Authorization: Bearer %TOKEN%" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"tender_id\":\"uuid\",\"bidder_id\":\"uuid\"}"
+```
+
+Export PDF:
+
+```bash
+curl -L http://localhost:8000/api/export/evaluation/EVALUATION_ID/pdf ^
+  -H "Authorization: Bearer %TOKEN%" ^
+  -o evaluation.pdf
+```
+
+## Troubleshooting
+
+### Frontend not loading
+
+```bash
+docker compose logs -f frontend
+docker compose exec frontend npm install
+docker compose restart frontend
+```
+
+### Backend 500
+
+```bash
+docker compose logs -f backend
+```
+
+Look for database, S3, SMTP, Groq, or PDF export errors.
+
+### Worker stuck on starting
+
+```bash
+docker compose logs -f worker
+docker compose restart worker
+```
+
+Confirm Redis and database are healthy.
+
+### PDF export failed
+
+Check backend logs for the real exception. Common causes:
+
+- Missing evaluation details
+- PDF renderer dependency issue
+- Empty criteria/result payload
+- Storage file lookup failure
+
+### LLM not used
+
+Check:
+
+- `GROQ_API_KEY`
+- `GROQ_MODEL`
+- Groq rate limits/quota
+- Backend logs
+
+If Groq fails, the result can still be generated by rules.
+
+### Duplicate table error
+
+Local database already has a table that migration/init tried to create. For local-only reset:
+
+```bash
+docker compose down -v
+docker compose up -d postgres redis
+docker compose up -d backend worker frontend
+docker compose exec backend python -m alembic upgrade head
+```
+
+## Git Commit Checklist
+
+Commit:
+
+- Source code
+- Alembic migrations
+- Docker/render/nginx config
+- `.env.example`
+- Documentation
+
+Do not commit:
+
+- `.env`
+- `.env.production`
+- Uploaded files
+- Logs
+- Chroma DB files
+- Database volumes/backups
+- Build output
+- Node modules
+- API keys or secrets
+
+## Production Smoke Test
+
+1. OTP signup works.
+2. Login works.
+3. Tender upload appears without manual refresh.
+4. Multiple bidder submissions appear.
+5. Evaluation shows all extracted criteria.
+6. Evidence and source pages are shown.
+7. Review assignment works.
+8. PDF export works.
+9. Email report works.
+10. Audit logs show actions.

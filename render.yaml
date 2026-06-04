@@ -1,0 +1,149 @@
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: tender-postgres
+    env: python
+    plan: standard
+    diskSize: 15
+    envVars:
+      - key: POSTGRES_USER
+        value: tender_user
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      - key: POSTGRES_DB
+        value: tender_db
+
+  # Redis Cache
+  - type: redis
+    name: tender-redis
+    plan: standard
+    ipAllowList: []
+
+  # FastAPI Backend
+  - type: webservice
+    name: tender-backend
+    env: python
+    plan: standard
+    buildCommand: pip install -r backend/requirements.txt && pip install -r backend/requirements-ml.txt
+    startCommand: |
+      cd backend && \
+      python -m alembic upgrade head && \
+      python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tender-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: tender-redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_BASE_URL
+        value: "https://api.groq.com/openai/v1"
+      - key: GROQ_MODEL
+        value: "llama-3.3-70b-versatile"
+      - key: FRONTEND_URL
+        value: "https://tender-frontend.onrender.com"
+      - key: AUTO_CREATE_TABLES
+        value: "false"
+      - key: ALLOW_PUBLIC_SIGNUP
+        value: "true"
+      - key: PUBLIC_SIGNUP_ALLOWED_EMAILS
+        value: ""
+      - key: PUBLIC_SIGNUP_ALLOWED_DOMAINS
+        value: ""
+      - key: PUBLIC_SIGNUP_BLOCKED_EMAILS
+        value: ""
+      - key: PUBLIC_SIGNUP_BLOCKED_DOMAINS
+        value: "tempmail.com,10minutemail.com,mailinator.com"
+      - key: EMAIL_OTP_EXPIRE_MINUTES
+        value: "10"
+      - key: EMAIL_OTP_LENGTH
+        value: "6"
+      - key: EMAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        value: "https://your-backend-domain.com/api/auth/oauth/google/callback"
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_CALLBACK_URL
+        value: "https://your-backend-domain.com/api/auth/oauth/linkedin/callback"
+      - key: STORAGE_BACKEND
+        value: "s3"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "ap-south-1"
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_PREFIX
+        value: "tender-evaluation"
+      - key: VECTOR_SEARCH_ENABLED
+        value: "true"
+      - key: CHROMA_PERSIST_DIR
+        value: "/tmp/chroma_db"
+      - key: EMBEDDINGS_MODEL
+        value: "sentence-transformers/all-MiniLM-L6-v2"
+      - key: DEBUG
+        value: "false"
+      - key: SERVER_HOST
+        value: "0.0.0.0"
+      - key: SERVER_PORT
+        value: "8000"
+      - key: ALLOWED_ORIGINS
+        value: "https://tender-frontend.onrender.com,https://yourdomain.com"
+
+    healthCheckPath: /api/health
+    healthCheckInterval: 30
+    
+    staticSite: false
+    
+    routes:
+      - path: /api
+        destination: /api
+
+  # React Frontend
+  - type: static_site
+    name: tender-frontend
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/build
+    
+    envVars:
+      - key: REACT_APP_API_URL
+        value: "https://tender-backend.onrender.com/api"
+      - key: REACT_APP_ENV
+        value: production
+      - key: REACT_APP_ALLOW_PUBLIC_SIGNUP
+        value: "true"
+
+    routes:
+      - path: /
+        destination: /index.html
+
+databases:
+  - name: tender-postgres
+    databaseName: tender_db
+    user: tender_user
+    plan: standard
+    diskSize: 15

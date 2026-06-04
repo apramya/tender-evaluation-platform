@@ -1,0 +1,5 @@
+# Optional ML embedding stack for higher-quality Chroma vector search.
+# Installed separately in Docker so dependency/download issues are isolated.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.1+cpu
+sentence-transformers==2.7.0

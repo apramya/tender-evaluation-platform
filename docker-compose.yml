@@ -1,0 +1,115 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: tender-postgres
+    environment:
+      POSTGRES_USER: tender_user
+      POSTGRES_PASSWORD: tender_password
+      POSTGRES_DB: tender_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tender_user -d tender_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tender-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: tender-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tender-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tender-backend
+    env_file:
+        - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./chroma_db:/app/chroma_db
+    networks:
+      - tender-network
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Background worker for heavier document/vector jobs
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tender-worker
+    env_file:
+        - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./chroma_db:/app/chroma_db
+    networks:
+      - tender-network
+    healthcheck:
+      disable: true
+    command: celery -A app.worker.celery_app worker --loglevel=info
+
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: tender-frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api
+      REACT_APP_ENV: development
+      REACT_APP_ALLOW_PUBLIC_SIGNUP: ${REACT_APP_ALLOW_PUBLIC_SIGNUP:-true}
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - tender-network
+    command: sh -c "npm install && npm start"
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  tender-network:
+    driver: bridge

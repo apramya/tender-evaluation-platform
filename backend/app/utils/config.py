@@ -3,7 +3,7 @@ Application configuration and settings
 """
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
-from typing import ClassVar, List
+from typing import ClassVar, List, Any
 import os
 
 
@@ -99,6 +99,15 @@ class Settings(BaseSettings):
     # Document Processing
     MAX_FILE_SIZE_MB: int = 100
     ALLOWED_FILE_TYPES: List[str] = ["pdf", "docx", "doc", "txt", "png", "jpg", "jpeg"]
+
+    @field_validator("ALLOWED_FILE_TYPES", mode="before")
+    @classmethod
+    def parse_allowed_file_types(cls, value: Any) -> List[str]:
+        if value is None or value == "":
+            return ["pdf", "docx", "doc", "txt", "png", "jpg", "jpeg"]
+        if isinstance(value, str):
+            return [item.strip().lower().lstrip(".") for item in value.split(",") if item.strip()]
+        return value
     
     # OCR
     USE_TESSERACT: bool = os.getenv("USE_TESSERACT", "True").lower() == "true"

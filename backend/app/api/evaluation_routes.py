@@ -203,8 +203,15 @@ async def create_evaluation(
                 criteria_payload,
             )
             evaluation_data = AIEvaluationService.finalize_evaluation_decision(evaluation_data)
-            llm_criteria_used = int(extraction_metadata.get("llm_raw_criteria_count") or 0) > 0
-            rule_criteria_used = int(extraction_metadata.get("deterministic_raw_criteria_count") or 0) > 0
+            llm_criteria_used = int(
+                extraction_metadata.get("llm_used_criteria_count")
+                or extraction_metadata.get("llm_raw_criteria_count")
+                or 0
+            ) > 0
+            rule_criteria_used = int(
+                extraction_metadata.get("deterministic_used_criteria_count")
+                or 0
+            ) > 0
             rule_evaluation_used = bool(rule_results)
             method_parts = []
             if llm_criteria_used or llm_evaluation_used:
@@ -215,8 +222,8 @@ async def create_evaluation(
             evaluation_data["decision_summary"] = (
                 f"{evaluation_data.get('decision_summary', 'Evaluation completed.')} "
                 f"Method: {evaluation_data['evaluation_method']}; "
-                f"LLM criteria: {extraction_metadata.get('llm_raw_criteria_count', 0)}, "
-                f"rule criteria: {extraction_metadata.get('deterministic_raw_criteria_count', 0)}, "
+                f"LLM criteria: {extraction_metadata.get('llm_used_criteria_count', extraction_metadata.get('llm_raw_criteria_count', 0))}, "
+                f"rule criteria: {extraction_metadata.get('deterministic_used_criteria_count', 0)}, "
                 f"LLM failed sections: {extraction_metadata.get('failed_sections', 0)}."
             )
         elif not tender_text:

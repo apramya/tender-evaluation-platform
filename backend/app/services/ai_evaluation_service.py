@@ -117,21 +117,34 @@ class AIEvaluationService:
                 continue
 
         deterministic = AIEvaluationService.extract_rule_based_tender_criteria(tender_text)
-        deduped = AIEvaluationService._dedupe_criteria([*all_criteria, *deterministic])
-        deduped = AIEvaluationService._filter_extracted_criteria(deduped)
+        llm_deduped = AIEvaluationService._filter_extracted_criteria(
+            AIEvaluationService._dedupe_criteria(all_criteria)
+        )
+        deterministic_deduped = AIEvaluationService._filter_extracted_criteria(
+            AIEvaluationService._dedupe_criteria(deterministic)
+        )
+        # When the LLM returns a structured checklist, keep that as the source
+        # of truth for criterion count. Broad deterministic clause extraction is
+        # still used later for evidence checks, but should not inflate an 8-item
+        # tender checklist into many repeated compliance rows.
+        deduped = llm_deduped if llm_deduped else deterministic_deduped
         logger.info(
-            "Extracted %s criteria from tender across %s section(s): llm_raw=%s deterministic_raw=%s failed_sections=%s",
+            "Extracted %s criteria from tender across %s section(s): llm_raw=%s llm_used=%s deterministic_raw=%s deterministic_used=%s failed_sections=%s",
             len(deduped),
             len(chunks),
             len(all_criteria),
+            len(llm_deduped),
             len(deterministic),
+            0 if llm_deduped else len(deterministic_deduped),
             failed_sections,
         )
         return {
             "criteria": deduped,
             "metadata": {
                 "llm_raw_criteria_count": len(all_criteria),
+                "llm_used_criteria_count": len(llm_deduped),
                 "deterministic_raw_criteria_count": len(deterministic),
+                "deterministic_used_criteria_count": 0 if llm_deduped else len(deterministic_deduped),
                 "failed_sections": failed_sections,
                 "section_count": len(chunks),
             },

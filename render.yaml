@@ -24,7 +24,7 @@ services:
     name: tender-backend
     env: python
     plan: standard
-    buildCommand: pip install -r backend/requirements.txt && pip install -r backend/requirements-ml.txt
+    buildCommand: python -m pip install --upgrade pip setuptools wheel && pip install -r backend/requirements.txt && pip install -r backend/requirements-ml.txt
     startCommand: |
       cd backend && \
       python -m alembic upgrade head && \
